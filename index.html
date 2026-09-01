@@ -1,0 +1,844 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#F1F6F2">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="ClearLabel">
+<title>ClearLabel — scan any product, know what's inside</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;800&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+<style>
+  :root{
+    --bg:#F1F6F2;
+    --card:#FFFFFF;
+    --ink:#17352B;
+    --muted:#5C7268;
+    --line:#DAE6DD;
+    --v-exc:#1F8A57;
+    --v-good:#7FA92F;
+    --v-poor:#DE8500;
+    --v-bad:#CE3A28;
+    --r:16px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:'Sora',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+    font-size:15px;
+    line-height:1.55;
+    padding-bottom:calc(76px + env(safe-area-inset-bottom));
+  }
+  .wrap{max-width:520px;margin:0 auto;padding:0 16px}
+
+  header.app{
+    padding:18px 0 10px;
+    display:flex;align-items:baseline;gap:10px;
+  }
+  header.app h1{font-size:1.35rem;font-weight:800;letter-spacing:-.02em}
+  header.app .tag{color:var(--muted);font-size:.8rem}
+
+  .screen{display:none}
+  .screen.active{display:block}
+
+  /* ---------- Scan screen ---------- */
+  .viewport{
+    position:relative;
+    background:#0E211B;
+    border-radius:var(--r);
+    overflow:hidden;
+    min-height:300px;
+    display:flex;align-items:center;justify-content:center;
+  }
+  .viewport video{width:100% !important;height:auto}
+  #reader{width:100%}
+  .viewport .idle{
+    text-align:center;color:#CFE3D6;padding:34px 24px;
+  }
+  .viewport .idle svg{display:block;margin:0 auto 14px;opacity:.9}
+  .viewport .idle p{font-size:.92rem;max-width:280px;margin:0 auto}
+  .btn{
+    display:block;width:100%;
+    background:var(--ink);color:#fff;
+    border:0;border-radius:14px;
+    font:inherit;font-weight:600;font-size:1rem;
+    padding:15px;margin-top:14px;cursor:pointer;
+  }
+  .btn:active{transform:scale(.99)}
+  .btn.secondary{background:transparent;color:var(--ink);border:1.5px solid var(--ink)}
+  .btn.stop{background:var(--v-bad)}
+  .or{
+    display:flex;align-items:center;gap:12px;color:var(--muted);
+    font-size:.8rem;margin:20px 0 8px;
+  }
+  .or::before,.or::after{content:"";flex:1;height:1px;background:var(--line)}
+  .manual{display:flex;gap:8px}
+  .manual input{
+    flex:1;font:inherit;font-size:1rem;
+    border:1.5px solid var(--line);border-radius:14px;
+    padding:13px 14px;background:var(--card);color:var(--ink);
+  }
+  .manual input:focus{outline:2px solid var(--ink);outline-offset:1px;border-color:var(--ink)}
+  .manual button{
+    font:inherit;font-weight:600;border:0;border-radius:14px;
+    background:var(--ink);color:#fff;padding:0 20px;cursor:pointer;
+  }
+  .hint{color:var(--muted);font-size:.8rem;margin-top:10px}
+  .camwarn{
+    margin-top:14px;background:#FCF3E4;border:1px solid #EAD3A8;
+    border-radius:12px;padding:12px 14px;font-size:.85rem;display:none;
+  }
+
+  /* ---------- Search screen ---------- */
+  .search-results{margin-top:16px}
+  .prod-row{
+    display:flex;gap:12px;align-items:center;
+    background:var(--card);border:1px solid var(--line);
+    border-radius:var(--r);padding:12px;margin-bottom:10px;
+    cursor:pointer;
+  }
+  .prod-row img{
+    width:52px;height:52px;object-fit:contain;border-radius:10px;
+    background:#F4F4F1;flex:none;
+  }
+  .prod-row .noimg{
+    width:52px;height:52px;border-radius:10px;background:#E8EFEA;flex:none;
+    display:flex;align-items:center;justify-content:center;color:var(--muted);
+    font-size:1.2rem;
+  }
+  .prod-row .meta{min-width:0;flex:1}
+  .prod-row .meta b{display:block;font-size:.92rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .prod-row .meta span{color:var(--muted);font-size:.8rem;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .prod-row .pill{flex:none}
+
+  /* ---------- Result screen ---------- */
+  .back{
+    background:none;border:0;color:var(--ink);font:inherit;font-weight:600;
+    padding:14px 0 6px;cursor:pointer;display:flex;align-items:center;gap:6px;
+  }
+  .result-card{
+    background:var(--card);border:1px solid var(--line);
+    border-radius:var(--r);padding:20px;margin-top:6px;
+  }
+  .result-head{display:flex;gap:16px;align-items:center}
+  .result-head img{
+    width:74px;height:74px;object-fit:contain;border-radius:12px;background:#F4F4F1;flex:none;
+  }
+  .result-head .info{min-width:0}
+  .result-head h2{font-size:1.05rem;font-weight:800;line-height:1.3}
+  .result-head .brand{color:var(--muted);font-size:.85rem;margin-top:2px}
+  .typechip{
+    display:inline-block;margin-top:8px;font-size:.72rem;font-weight:600;
+    border:1px solid var(--line);border-radius:999px;padding:3px 10px;color:var(--muted);
+  }
+  .dial-row{display:flex;align-items:center;gap:20px;margin:22px 0 6px}
+  .dial{position:relative;width:118px;height:118px;flex:none}
+  .dial svg{transform:rotate(-90deg)}
+  .dial .num{
+    position:absolute;inset:0;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;
+  }
+  .dial .num b{font-size:2rem;font-weight:800;line-height:1}
+  .dial .num span{font-size:.68rem;color:var(--muted);margin-top:3px}
+  .verdict h3{font-size:1.25rem;font-weight:800}
+  .verdict p{color:var(--muted);font-size:.85rem;margin-top:4px}
+  .pill{
+    display:inline-flex;align-items:center;gap:6px;
+    font-size:.78rem;font-weight:600;color:#fff;
+    border-radius:999px;padding:4px 12px;
+  }
+  .section{margin-top:22px}
+  .section h4{font-size:.95rem;font-weight:800;margin-bottom:10px}
+  .ing{
+    display:flex;gap:10px;align-items:flex-start;
+    padding:11px 0;border-top:1px solid var(--line);
+  }
+  .ing:first-of-type{border-top:0}
+  .dot{width:10px;height:10px;border-radius:50%;flex:none;margin-top:6px}
+  .ing .body{min-width:0}
+  .ing .body b{font-size:.9rem}
+  .ing .body small{display:block;color:var(--muted);font-size:.8rem;line-height:1.45}
+  .facts{display:flex;flex-wrap:wrap;gap:8px}
+  .fact{
+    background:var(--bg);border:1px solid var(--line);border-radius:12px;
+    padding:8px 12px;font-size:.8rem;
+  }
+  .fact b{display:block;font-size:.88rem}
+  .fulling{
+    color:var(--muted);font-size:.82rem;line-height:1.6;
+    background:var(--bg);border-radius:12px;padding:12px 14px;
+  }
+  .missing{
+    background:#FCF3E4;border:1px solid #EAD3A8;border-radius:12px;
+    padding:14px;font-size:.85rem;line-height:1.5;
+  }
+  .missing a{color:var(--ink);font-weight:600}
+  .disclaimer{color:var(--muted);font-size:.72rem;margin-top:20px;line-height:1.5}
+
+  /* ---------- History ---------- */
+  .empty{
+    text-align:center;color:var(--muted);padding:60px 20px;font-size:.9rem;
+  }
+  .clear-hist{margin-top:16px}
+
+  /* ---------- Tab bar ---------- */
+  nav{
+    position:fixed;bottom:0;left:0;right:0;
+    background:var(--card);border-top:1px solid var(--line);
+    padding-bottom:env(safe-area-inset-bottom);
+    z-index:50;
+  }
+  nav .wrap{display:flex;padding:0}
+  nav button{
+    flex:1;background:none;border:0;font:inherit;cursor:pointer;
+    padding:10px 0 8px;color:var(--muted);
+    display:flex;flex-direction:column;align-items:center;gap:3px;
+    font-size:.68rem;font-weight:600;
+  }
+  nav button.on{color:var(--ink)}
+  nav button svg{width:23px;height:23px}
+
+  .loader{
+    display:none;text-align:center;padding:50px 0;color:var(--muted);font-size:.9rem;
+  }
+  .loader.show{display:block}
+  .spin{
+    width:30px;height:30px;border-radius:50%;
+    border:3px solid var(--line);border-top-color:var(--ink);
+    margin:0 auto 14px;animation:sp .8s linear infinite;
+  }
+  @keyframes sp{to{transform:rotate(360deg)}}
+  @media (prefers-reduced-motion: reduce){
+    .spin{animation-duration:2s}
+    .btn:active{transform:none}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="app">
+    <h1>ClearLabel</h1>
+    <span class="tag">scan it before you buy it</span>
+  </header>
+
+  <!-- Scan -->
+  <div class="screen active" id="screen-scan">
+    <div class="viewport">
+      <div id="reader"></div>
+      <div class="idle" id="scan-idle">
+        <svg width="54" height="54" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+          <path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/>
+          <path d="M7 8v8M10.5 8v8M13.5 8v5M13.5 15.5v.5M16.5 8v8"/>
+        </svg>
+        <p>Point your camera at the barcode on any food or cosmetic product.</p>
+      </div>
+    </div>
+    <button class="btn" id="btn-start">Start camera</button>
+    <div class="camwarn" id="camwarn">
+      Camera didn't start. iPhones only allow camera access on pages served over
+      <b>https://</b> — see the README for free hosting in 2 minutes. You can still
+      type any barcode below.
+    </div>
+    <div class="or">or type the barcode</div>
+    <div class="manual">
+      <input id="manual-code" type="text" inputmode="numeric" placeholder="e.g. 3017620422003" aria-label="Barcode number">
+      <button id="btn-manual">Check</button>
+    </div>
+    <p class="hint">The number printed under the barcode — usually 8 or 13 digits. Works for food and cosmetics worldwide.</p>
+  </div>
+
+  <!-- Search -->
+  <div class="screen" id="screen-search">
+    <div class="manual">
+      <input id="search-q" type="search" placeholder="Search by product name…" aria-label="Product name">
+      <button id="btn-search">Search</button>
+    </div>
+    <p class="hint">Searches Open Food Facts and Open Beauty Facts — over 3 million products added by people worldwide.</p>
+    <div class="loader" id="search-loader"><div class="spin"></div>Searching…</div>
+    <div class="search-results" id="search-results"></div>
+  </div>
+
+  <!-- History -->
+  <div class="screen" id="screen-history">
+    <div id="history-list"></div>
+  </div>
+
+  <!-- Result -->
+  <div class="screen" id="screen-result">
+    <button class="back" id="btn-back">← Back</button>
+    <div class="loader" id="result-loader"><div class="spin"></div>Looking up product…</div>
+    <div id="result-body"></div>
+  </div>
+</div>
+
+<nav>
+  <div class="wrap">
+    <button data-tab="scan" class="on" aria-label="Scan">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M7 12h10"/></svg>
+      Scan
+    </button>
+    <button data-tab="search" aria-label="Search">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      Search
+    </button>
+    <button data-tab="history" aria-label="History">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 3"/></svg>
+      History
+    </button>
+  </div>
+</nav>
+
+<script>
+/* =====================================================================
+   ClearLabel — open-source personal product safety scanner
+   Data: Open Food Facts & Open Beauty Facts (ODbL). MIT licensed code.
+   Scores are informational only — not medical advice.
+   ===================================================================== */
+
+/* ---------- Food additive risk table ----------
+   risk: 0 none · 1 limited concern · 2 moderate · 3 high
+   Sources: EFSA re-evaluations, EU regulation, IARC monographs. */
+const ADDITIVES = {
+  e102:{n:"Tartrazine (yellow dye)",r:3,w:"Azo dye linked to hyperactivity in children; can trigger allergic reactions."},
+  e104:{n:"Quinoline yellow",r:3,w:"Azo-type dye linked to hyperactivity; restricted in several countries."},
+  e110:{n:"Sunset yellow FCF",r:3,w:"Azo dye linked to hyperactivity in children; possible allergen."},
+  e120:{n:"Cochineal / carmine",r:2,w:"Natural red dye that can cause allergic reactions in sensitive people."},
+  e122:{n:"Azorubine / carmoisine",r:3,w:"Azo dye linked to hyperactivity; banned in some countries."},
+  e124:{n:"Ponceau 4R",r:3,w:"Azo dye linked to hyperactivity; banned in the US."},
+  e129:{n:"Allura red AC",r:3,w:"Azo dye linked to hyperactivity in children."},
+  e131:{n:"Patent blue V",r:2,w:"Synthetic dye; rare allergic reactions reported."},
+  e133:{n:"Brilliant blue FCF",r:2,w:"Synthetic dye; generally considered lower risk but still artificial."},
+  e142:{n:"Green S",r:2,w:"Synthetic dye; limited safety data."},
+  e150a:{n:"Plain caramel",r:1,w:"Simple caramel colouring; low concern."},
+  e150b:{n:"Caustic sulphite caramel",r:2,w:"Caramel colouring made with sulphites."},
+  e150c:{n:"Ammonia caramel",r:2,w:"May contain traces of 4-MEI, a possible carcinogen."},
+  e150d:{n:"Sulphite ammonia caramel",r:3,w:"Can contain 4-MEI, classified as possibly carcinogenic (common in colas)."},
+  e171:{n:"Titanium dioxide",r:3,w:"Banned in EU food since 2022 — genotoxicity could not be ruled out."},
+  e200:{n:"Sorbic acid",r:1,w:"Preservative; low concern at normal doses."},
+  e202:{n:"Potassium sorbate",r:1,w:"Common preservative; low concern, rare skin reactions."},
+  e211:{n:"Sodium benzoate",r:2,w:"Can form benzene (a carcinogen) when combined with vitamin C; hyperactivity link."},
+  e212:{n:"Potassium benzoate",r:2,w:"Same benzene-formation concern as sodium benzoate."},
+  e220:{n:"Sulphur dioxide",r:2,w:"Sulphite — can trigger asthma and allergic reactions."},
+  e221:{n:"Sodium sulphite",r:2,w:"Sulphite — can trigger asthma and allergic reactions."},
+  e222:{n:"Sodium bisulphite",r:2,w:"Sulphite — can trigger asthma and allergic reactions."},
+  e223:{n:"Sodium metabisulphite",r:2,w:"Sulphite — can trigger asthma and allergic reactions."},
+  e224:{n:"Potassium metabisulphite",r:2,w:"Sulphite — can trigger asthma and allergic reactions."},
+  e228:{n:"Potassium bisulphite",r:2,w:"Sulphite — can trigger asthma and allergic reactions."},
+  e249:{n:"Potassium nitrite",r:3,w:"Cured-meat preservative; can form nitrosamines, linked to colorectal cancer."},
+  e250:{n:"Sodium nitrite",r:3,w:"Cured-meat preservative; can form nitrosamines, linked to colorectal cancer."},
+  e251:{n:"Sodium nitrate",r:3,w:"Converts to nitrite; same nitrosamine concern as E250."},
+  e252:{n:"Potassium nitrate",r:3,w:"Converts to nitrite; same nitrosamine concern as E250."},
+  e319:{n:"TBHQ",r:3,w:"Synthetic antioxidant; animal studies raise tumour concerns at high doses."},
+  e320:{n:"BHA",r:3,w:"Classified by IARC as possibly carcinogenic to humans; suspected endocrine disruptor."},
+  e321:{n:"BHT",r:2,w:"Synthetic antioxidant; suspected endocrine effects in animal studies."},
+  e338:{n:"Phosphoric acid",r:2,w:"High phosphate intake is linked to cardiovascular and kidney strain."},
+  e339:{n:"Sodium phosphates",r:2,w:"Added phosphates are absorbed fast; excess linked to heart and kidney strain."},
+  e340:{n:"Potassium phosphates",r:2,w:"Same added-phosphate concern as E339."},
+  e341:{n:"Calcium phosphates",r:1,w:"Phosphate; lower concern but adds to total phosphate load."},
+  e407:{n:"Carrageenan",r:2,w:"Thickener; degraded forms linked to gut inflammation in animal studies."},
+  e415:{n:"Xanthan gum",r:0,w:"Fermentation-derived thickener; considered safe."},
+  e420:{n:"Sorbitol",r:1,w:"Sugar alcohol; laxative effect in larger amounts."},
+  e433:{n:"Polysorbate 80",r:2,w:"Emulsifier; animal studies suggest gut-microbiome disruption."},
+  e435:{n:"Polysorbate 60",r:2,w:"Emulsifier; same microbiome concern as polysorbate 80."},
+  e450:{n:"Diphosphates",r:2,w:"Added phosphates; excess linked to heart and kidney strain."},
+  e451:{n:"Triphosphates",r:2,w:"Added phosphates; excess linked to heart and kidney strain."},
+  e452:{n:"Polyphosphates",r:2,w:"Added phosphates; excess linked to heart and kidney strain."},
+  e466:{n:"Carboxymethyl cellulose",r:2,w:"Emulsifier; studies suggest possible gut-microbiome effects."},
+  e471:{n:"Mono- & diglycerides",r:2,w:"Emulsifier; may contain trans fats, origin often unlabelled."},
+  e551:{n:"Silicon dioxide",r:1,w:"Anti-caking agent; nanoparticle content under review in the EU."},
+  e621:{n:"Monosodium glutamate",r:2,w:"Flavour enhancer; headaches/flushing reported in sensitive people."},
+  e627:{n:"Disodium guanylate",r:1,w:"Flavour enhancer, usually used with MSG; avoid with gout."},
+  e631:{n:"Disodium inosinate",r:1,w:"Flavour enhancer, usually used with MSG; avoid with gout."},
+  e924:{n:"Potassium bromate",r:3,w:"Flour improver; possible carcinogen, banned in the EU, UK, India and more."},
+  e950:{n:"Acesulfame K",r:2,w:"Artificial sweetener; long-term effects still debated."},
+  e951:{n:"Aspartame",r:3,w:"Classified by IARC (2023) as possibly carcinogenic; debate ongoing."},
+  e952:{n:"Cyclamate",r:2,w:"Artificial sweetener; banned in the US since 1969."},
+  e954:{n:"Saccharin",r:2,w:"Artificial sweetener; historical cancer concern, now considered lower risk."},
+  e955:{n:"Sucralose",r:2,w:"Artificial sweetener; recent studies question effects on gut microbiome."},
+  e960:{n:"Steviol glycosides",r:1,w:"Plant-derived sweetener; considered safe."},
+  e965:{n:"Maltitol",r:1,w:"Sugar alcohol; laxative effect in larger amounts."},
+  e967:{n:"Xylitol",r:1,w:"Sugar alcohol; laxative effect in larger amounts. Highly toxic to dogs."},
+  e968:{n:"Erythritol",r:1,w:"Sugar alcohol; 2023 studies query links to clotting, research ongoing."}
+};
+const SAFE_ADDITIVES = ["e100","e101","e140","e141","e160a","e160c","e162","e163","e170",
+  "e260","e270","e296","e300","e301","e306","e307","e308","e322","e325","e330","e331",
+  "e332","e333","e336","e392","e400","e401","e406","e410","e412","e414","e417","e418",
+  "e422","e440","e460","e500","e501","e503","e504","e575","e903","e941","e948"];
+
+/* ---------- Cosmetic ingredient risk table ----------
+   risk: 1 limited concern · 2 moderate · 3 high
+   Sources: EU CosIng restrictions, SCCS opinions, common allergen lists. */
+const COSMETIC_RISKS = [
+  {m:["butylparaben"],n:"Butylparaben",r:3,w:"Suspected endocrine disruptor; restricted in the EU."},
+  {m:["propylparaben"],n:"Propylparaben",r:3,w:"Suspected endocrine disruptor; restricted in the EU."},
+  {m:["isobutylparaben","isopropylparaben"],n:"Isobutyl/isopropylparaben",r:3,w:"Banned in the EU over endocrine concerns."},
+  {m:["methylparaben"],n:"Methylparaben",r:2,w:"Paraben preservative; weaker endocrine activity than longer-chain parabens."},
+  {m:["ethylparaben"],n:"Ethylparaben",r:2,w:"Paraben preservative; weaker endocrine activity than longer-chain parabens."},
+  {m:["formaldehyde","formalin"],n:"Formaldehyde",r:3,w:"Known human carcinogen and strong allergen."},
+  {m:["dmdm hydantoin"],n:"DMDM hydantoin",r:3,w:"Slowly releases formaldehyde; allergen."},
+  {m:["imidazolidinyl urea"],n:"Imidazolidinyl urea",r:3,w:"Formaldehyde-releasing preservative; allergen."},
+  {m:["diazolidinyl urea"],n:"Diazolidinyl urea",r:3,w:"Formaldehyde-releasing preservative; allergen."},
+  {m:["quaternium-15"],n:"Quaternium-15",r:3,w:"Formaldehyde releaser; banned in the EU since 2022."},
+  {m:["sodium hydroxymethylglycinate"],n:"Sodium hydroxymethylglycinate",r:2,w:"Formaldehyde-releasing preservative."},
+  {m:["triclosan"],n:"Triclosan",r:3,w:"Antibacterial; endocrine disruption and resistance concerns, widely restricted."},
+  {m:["triclocarban"],n:"Triclocarban",r:3,w:"Antibacterial; banned from US soaps in 2016."},
+  {m:["oxybenzone","benzophenone-3","benzophenone"],n:"Oxybenzone (benzophenone-3)",r:3,w:"UV filter; hormone-disruption concerns, high skin absorption, reef-toxic."},
+  {m:["homosalate"],n:"Homosalate",r:2,w:"UV filter; EU lowered allowed levels over endocrine concerns."},
+  {m:["octinoxate","ethylhexyl methoxycinnamate","octyl methoxycinnamate"],n:"Octinoxate",r:2,w:"UV filter; suspected endocrine effects, reef-toxic."},
+  {m:["methylisothiazolinone"],n:"Methylisothiazolinone",r:3,w:"One of the strongest contact allergens; banned in EU leave-on products."},
+  {m:["methylchloroisothiazolinone"],n:"Methylchloroisothiazolinone",r:3,w:"Potent contact allergen; heavily restricted."},
+  {m:["hydroquinone"],n:"Hydroquinone",r:3,w:"Skin-lightening agent; banned in EU cosmetics, can cause ochronosis."},
+  {m:["resorcinol"],n:"Resorcinol",r:2,w:"Hair-dye ingredient; skin irritant, suspected thyroid effects."},
+  {m:["toluene"],n:"Toluene",r:3,w:"Solvent; neurotoxic, dangerous during pregnancy."},
+  {m:["dibutyl phthalate","dbp"],n:"Dibutyl phthalate",r:3,w:"Phthalate plasticiser; reproductive toxicant, banned in the EU."},
+  {m:["diethyl phthalate","dep "],n:"Diethyl phthalate",r:2,w:"Phthalate often hidden inside 'fragrance'; endocrine concerns."},
+  {m:["bha "],n:"BHA (butylated hydroxyanisole)",r:3,w:"Possible carcinogen and endocrine disruptor."},
+  {m:["bht"],n:"BHT (butylated hydroxytoluene)",r:2,w:"Synthetic antioxidant; suspected endocrine effects."},
+  {m:["cyclotetrasiloxane"],n:"Cyclotetrasiloxane (D4)",r:3,w:"Silicone; reproductive toxicity concerns, EU-restricted."},
+  {m:["cyclopentasiloxane"],n:"Cyclopentasiloxane (D5)",r:2,w:"Silicone; may contain traces of D4, environmental persistence."},
+  {m:["phenoxyethanol"],n:"Phenoxyethanol",r:1,w:"Common preservative; safe ≤1% but can irritate, avoid near infants' mouths."},
+  {m:["sodium lauryl sulfate","sodium lauryl sulphate"],n:"Sodium lauryl sulfate",r:2,w:"Foaming agent; can irritate skin and strip its barrier."},
+  {m:["sodium laureth sulfate","sodium laureth sulphate"],n:"Sodium laureth sulfate",r:1,w:"Milder than SLS; possible 1,4-dioxane traces from processing."},
+  {m:["parfum","fragrance","aroma"],n:"Fragrance / parfum",r:2,w:"Umbrella term that can hide dozens of undisclosed allergens."},
+  {m:["limonene"],n:"Limonene",r:1,w:"Citrus fragrance allergen; oxidises into a stronger sensitiser."},
+  {m:["linalool"],n:"Linalool",r:1,w:"Fragrance allergen; oxidises into a stronger sensitiser."},
+  {m:["citronellol"],n:"Citronellol",r:1,w:"Listed fragrance allergen."},
+  {m:["geraniol"],n:"Geraniol",r:1,w:"Listed fragrance allergen."},
+  {m:["eugenol"],n:"Eugenol",r:1,w:"Listed fragrance allergen."},
+  {m:["coumarin"],n:"Coumarin",r:1,w:"Listed fragrance allergen."},
+  {m:["benzyl salicylate"],n:"Benzyl salicylate",r:1,w:"Listed fragrance allergen."},
+  {m:["talc"],n:"Talc",r:2,w:"Concern is asbestos contamination in poorly sourced talc; avoid inhaling powders."},
+  {m:["aluminum chlorohydrate","aluminium chlorohydrate","aluminum zirconium","aluminium zirconium"],n:"Aluminium salts",r:1,w:"Antiperspirant actives; health links debated, evidence weak so far."},
+  {m:["triethanolamine"],n:"Triethanolamine",r:2,w:"pH adjuster; can form nitrosamines with certain preservatives."},
+  {m:["dea","diethanolamine","cocamide dea"],n:"DEA compounds",r:2,w:"Can form carcinogenic nitrosamines; restricted in the EU."},
+  {m:["peg-"],n:"PEG compounds",r:1,w:"May carry 1,4-dioxane/ethylene-oxide traces from manufacturing."},
+  {m:["carbon black"],n:"Carbon black",r:2,w:"Pigment; concern is mainly inhalation of powder forms."},
+  {m:["retinyl palmitate"],n:"Retinyl palmitate",r:2,w:"Vitamin A ester; may increase sun sensitivity, avoid high doses in pregnancy."},
+  {m:["mineral oil","paraffinum liquidum"],n:"Mineral oil",r:1,w:"Safe when cosmetic-grade and purified; quality varies."},
+  {m:["petrolatum"],n:"Petrolatum",r:1,w:"Safe when refined; unrefined grades may carry PAH impurities."},
+  {m:["alcohol denat"],n:"Alcohol denat.",r:1,w:"Can dry and irritate skin in high concentrations."},
+  {m:["propylene glycol"],n:"Propylene glycol",r:1,w:"Humectant; occasional contact allergen."},
+  {m:["ci 15850","ci 15985","ci 16035","ci 17200","ci 19140","ci 42090"],n:"Synthetic colourant",r:1,w:"Azo/synthetic dye; occasional sensitivity reported."}
+];
+
+/* =============================== state =============================== */
+const $ = id => document.getElementById(id);
+let scanner = null, scanning = false, lastTab = "scan";
+const productCache = {};
+
+/* ============================ navigation ============================= */
+function showScreen(name){
+  document.querySelectorAll(".screen").forEach(s => s.classList.remove("active"));
+  $("screen-" + name).classList.add("active");
+  document.querySelectorAll("nav button").forEach(b =>
+    b.classList.toggle("on", b.dataset.tab === name));
+  if(name !== "result") lastTab = name;
+  if(name !== "scan" && scanning) stopScanner();
+  if(name === "history") renderHistory();
+  window.scrollTo(0,0);
+}
+document.querySelectorAll("nav button").forEach(b =>
+  b.addEventListener("click", () => showScreen(b.dataset.tab)));
+$("btn-back").addEventListener("click", () => showScreen(lastTab));
+
+/* ============================= scanner =============================== */
+async function startScanner(){
+  $("camwarn").style.display = "none";
+  try{
+    scanner = scanner || new Html5Qrcode("reader");
+    const formats = [
+      Html5QrcodeSupportedFormats.EAN_13, Html5QrcodeSupportedFormats.EAN_8,
+      Html5QrcodeSupportedFormats.UPC_A,  Html5QrcodeSupportedFormats.UPC_E,
+      Html5QrcodeSupportedFormats.CODE_128, Html5QrcodeSupportedFormats.CODE_39
+    ];
+    await scanner.start(
+      { facingMode: "environment" },
+      { fps: 10, qrbox: { width: 260, height: 160 }, formatsToSupport: formats },
+      code => {
+        if(navigator.vibrate) navigator.vibrate(60);
+        stopScanner();
+        lookup(code.trim());
+      }
+    );
+    scanning = true;
+    $("scan-idle").style.display = "none";
+    $("btn-start").textContent = "Stop camera";
+    $("btn-start").classList.add("stop");
+  }catch(err){
+    console.error(err);
+    $("camwarn").style.display = "block";
+  }
+}
+function stopScanner(){
+  if(scanner && scanning){
+    scanner.stop().catch(()=>{});
+  }
+  scanning = false;
+  $("scan-idle").style.display = "block";
+  $("btn-start").textContent = "Start camera";
+  $("btn-start").classList.remove("stop");
+}
+$("btn-start").addEventListener("click", () => scanning ? stopScanner() : startScanner());
+$("btn-manual").addEventListener("click", () => {
+  const c = $("manual-code").value.replace(/\D/g,"");
+  if(c.length >= 6) lookup(c);
+});
+$("manual-code").addEventListener("keydown", e => {
+  if(e.key === "Enter") $("btn-manual").click();
+});
+
+/* ============================== lookup =============================== */
+async function fetchProduct(base, code){
+  try{
+    const r = await fetch(`https://${base}/api/v0/product/${code}.json`);
+    if(!r.ok) return null;
+    const d = await r.json();
+    return (d.status === 1 && d.product) ? d.product : null;
+  }catch(e){ return null; }
+}
+
+async function lookup(code){
+  showScreen("result");
+  $("result-body").innerHTML = "";
+  $("result-loader").classList.add("show");
+
+  let type = "food";
+  let p = productCache["off:"+code] || await fetchProduct("world.openfoodfacts.org", code);
+  if(p && !(p.ingredients_text || p.nutriscore_grade || p.nutrition_grades)){
+    // Shell entry in OFF — check if the beauty database knows it better
+    const alt = await fetchProduct("world.openbeautyfacts.org", code);
+    if(alt && alt.ingredients_text){ p = alt; type = "cosmetic"; }
+  }
+  if(!p){
+    p = await fetchProduct("world.openbeautyfacts.org", code);
+    if(p) type = "cosmetic";
+  }
+  if(!p){
+    p = await fetchProduct("world.openproductsfacts.org", code);
+    if(p) type = "other";
+  }
+
+  $("result-loader").classList.remove("show");
+  if(!p){ renderNotFound(code); return; }
+  productCache[(type==="cosmetic"?"obf:":"off:")+code] = p;
+
+  const result = (type === "cosmetic") ? scoreCosmetic(p) : scoreFood(p);
+  renderResult(p, code, type, result);
+  saveHistory(p, code, type, result);
+}
+
+/* ============================ food scoring =========================== */
+function verdictOf(score){
+  if(score === null) return {label:"No data", color:"#8A9B90", sub:"Not enough information to score this product."};
+  if(score >= 75) return {label:"Excellent", color:"var(--v-exc)", sub:"Great choice — nothing concerning found."};
+  if(score >= 50) return {label:"Good", color:"var(--v-good)", sub:"A decent choice with minor drawbacks."};
+  if(score >= 25) return {label:"Poor", color:"var(--v-poor)", sub:"Several drawbacks — fine occasionally, not daily."};
+  return {label:"Bad", color:"var(--v-bad)", sub:"Best avoided — significant concerns found."};
+}
+const riskColor = r => r >= 3 ? "var(--v-bad)" : r === 2 ? "var(--v-poor)" : r === 1 ? "var(--v-good)" : "var(--v-exc)";
+
+function scoreFood(p){
+  const grade = (p.nutriscore_grade || p.nutrition_grades || "").toLowerCase();
+  const baseMap = {a:60, b:45, c:32, d:18, e:5};
+  const hasGrade = grade in baseMap;
+  const base = hasGrade ? baseMap[grade] : 30;
+
+  const tags = (p.additives_tags || []).map(t => t.replace(/^[a-z]{2}:/,"").toLowerCase());
+  const additives = tags.map(t => {
+    const info = ADDITIVES[t];
+    if(info) return {code:t.toUpperCase(), ...info};
+    if(SAFE_ADDITIVES.includes(t)) return {code:t.toUpperCase(), n:"Additive "+t.toUpperCase(), r:0, w:"Generally recognised as safe."};
+    return {code:t.toUpperCase(), n:"Additive "+t.toUpperCase(), r:1, w:"Limited safety data available."};
+  }).sort((a,b) => b.r - a.r);
+
+  let addScore = 30;
+  additives.forEach(a => { addScore -= a.r === 3 ? 12 : a.r === 2 ? 6 : a.r === 1 ? 2 : 0; });
+  addScore = Math.max(0, addScore);
+
+  const labels = p.labels_tags || [];
+  const organic = labels.some(l => l.includes("organic") || l.includes("bio-"));
+  const highCount = additives.filter(a => a.r === 3).length;
+
+  let score = base + addScore + (organic ? 10 : 0);
+  if(highCount >= 2) score = Math.min(score, 25);
+  else if(highCount === 1) score = Math.min(score, 49);
+  score = Math.max(0, Math.min(100, Math.round(score)));
+
+  return {score, additives, organic, hasGrade, grade,
+          nova: p.nova_group || null,
+          allergens: (p.allergens_tags || []).map(a => a.replace(/^[a-z]{2}:/,"")),
+          nutr: p.nutriments || {}};
+}
+
+/* ========================= cosmetic scoring ========================== */
+function scoreCosmetic(p){
+  const text = (p.ingredients_text || "").toLowerCase();
+  if(!text.trim()) return {score:null, matches:[], text:""};
+
+  const tokens = text.split(/[,;•·\n]+/).map(t => t.trim()).filter(Boolean);
+  const matches = [];
+  const seen = new Set();
+
+  tokens.forEach(tok => {
+    const words = tok.split(/[^a-z0-9\-]+/);
+    COSMETIC_RISKS.forEach(entry => {
+      if(seen.has(entry.n)) return;
+      const hit = entry.m.some(alias => {
+        const a = alias.trim();
+        if(a.endsWith("-")) return words.some(w => w.startsWith(a));
+        return a.length <= 4 ? words.includes(a) : tok.includes(a);
+      });
+      if(hit){ seen.add(entry.n); matches.push({...entry, found:tok}); }
+    });
+  });
+  matches.sort((a,b) => b.r - a.r);
+
+  let score = 100;
+  matches.forEach(x => { score -= x.r === 3 ? 30 : x.r === 2 ? 12 : 4; });
+  if(matches.some(x => x.r === 3)) score = Math.min(score, 49);
+  score = Math.max(0, Math.min(100, Math.round(score)));
+
+  return {score, matches, text: p.ingredients_text};
+}
+
+/* ============================= rendering ============================= */
+function esc(s){ return String(s ?? "").replace(/[&<>"']/g, c =>
+  ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+
+function dialSVG(score, color){
+  const C = 2 * Math.PI * 52;
+  const dash = score === null ? 0 : (score/100) * C;
+  return `<div class="dial">
+    <svg width="118" height="118" viewBox="0 0 118 118">
+      <circle cx="59" cy="59" r="52" fill="none" stroke="var(--line)" stroke-width="10"/>
+      <circle cx="59" cy="59" r="52" fill="none" stroke="${color}" stroke-width="10"
+        stroke-linecap="round" stroke-dasharray="${dash} ${C}"/>
+    </svg>
+    <div class="num"><b>${score === null ? "–" : score}</b><span>out of 100</span></div>
+  </div>`;
+}
+
+function renderResult(p, code, type, res){
+  const v = verdictOf(res.score);
+  const name = p.product_name || p.product_name_en || "Unnamed product";
+  const brand = p.brands || "";
+  const img = p.image_front_url || p.image_url || "";
+  const typeLabel = type === "cosmetic" ? "Cosmetic" : type === "other" ? "Product" : "Food";
+
+  let html = `<div class="result-card">
+    <div class="result-head">
+      ${img ? `<img src="${esc(img)}" alt="">` : ""}
+      <div class="info">
+        <h2>${esc(name)}</h2>
+        ${brand ? `<div class="brand">${esc(brand)}</div>` : ""}
+        <span class="typechip">${typeLabel} · ${esc(code)}</span>
+      </div>
+    </div>
+    <div class="dial-row">
+      ${dialSVG(res.score, v.color)}
+      <div class="verdict">
+        <span class="pill" style="background:${v.color}">${v.label}</span>
+        <p>${v.sub}</p>
+      </div>
+    </div>`;
+
+  if(type !== "cosmetic"){
+    html += foodSections(res, p);
+  } else {
+    html += cosmeticSections(res, p, code);
+  }
+
+  html += `<p class="disclaimer">Scores are computed on your device from open data
+    (Open Food Facts / Open Beauty Facts, ODbL licence) and published scientific
+    assessments. They are informational only and not medical advice. Data is
+    community-contributed and may be incomplete — always check the physical label
+    for allergies.</p></div>`;
+
+  $("result-body").innerHTML = html;
+}
+
+function foodSections(res, p){
+  let html = "";
+
+  // Additives
+  html += `<div class="section"><h4>Additives</h4>`;
+  if(res.additives.length === 0){
+    html += `<div class="ing"><span class="dot" style="background:var(--v-exc)"></span>
+      <div class="body"><b>No additives listed</b>
+      <small>No E-number additives declared for this product.</small></div></div>`;
+  } else {
+    res.additives.forEach(a => {
+      html += `<div class="ing"><span class="dot" style="background:${riskColor(a.r)}"></span>
+        <div class="body"><b>${esc(a.code)} — ${esc(a.n)}</b>
+        <small>${esc(a.w)}</small></div></div>`;
+    });
+  }
+  html += `</div>`;
+
+  // Nutrition facts
+  const n = res.nutr;
+  const facts = [];
+  if(res.hasGrade) facts.push(["Nutri-Score", res.grade.toUpperCase()]);
+  if(res.nova) facts.push(["NOVA group", res.nova + (res.nova >= 4 ? " (ultra-processed)" : "")]);
+  const kcal = n["energy-kcal_100g"];
+  if(kcal != null) facts.push(["Calories", Math.round(kcal) + " kcal/100g"]);
+  if(n.sugars_100g != null) facts.push(["Sugar", n.sugars_100g + " g/100g"]);
+  if(n["saturated-fat_100g"] != null) facts.push(["Saturated fat", n["saturated-fat_100g"] + " g/100g"]);
+  if(n.salt_100g != null) facts.push(["Salt", n.salt_100g + " g/100g"]);
+  if(res.organic) facts.push(["Label", "Organic ✓"]);
+  if(facts.length){
+    html += `<div class="section"><h4>Nutrition</h4><div class="facts">` +
+      facts.map(f => `<div class="fact"><b>${esc(f[1])}</b>${esc(f[0])}</div>`).join("") +
+      `</div></div>`;
+  } else if(!res.hasGrade){
+    html += `<div class="section"><div class="missing">No nutrition data yet for this
+      product, so the score uses a neutral baseline. You can add the label photo on
+      <a href="https://world.openfoodfacts.org" target="_blank" rel="noopener">Open Food Facts</a>
+      to improve it for everyone.</div></div>`;
+  }
+
+  // Allergens
+  if(res.allergens.length){
+    html += `<div class="section"><h4>Allergens</h4><div class="facts">` +
+      res.allergens.map(a => `<div class="fact"><b>${esc(a.replace(/-/g," "))}</b></div>`).join("") +
+      `</div></div>`;
+  }
+
+  // Full ingredient list
+  if(p.ingredients_text){
+    html += `<div class="section"><h4>Full ingredient list</h4>
+      <div class="fulling">${esc(p.ingredients_text)}</div></div>`;
+  }
+  return html;
+}
+
+function cosmeticSections(res, p, code){
+  let html = "";
+  if(res.score === null){
+    html += `<div class="section"><div class="missing">This product exists in the
+      database but its ingredient list hasn't been added yet, so it can't be scored.
+      Snap a photo of the ingredients on
+      <a href="https://world.openbeautyfacts.org" target="_blank" rel="noopener">Open Beauty Facts</a>
+      and it will work for everyone.</div></div>`;
+    return html;
+  }
+  html += `<div class="section"><h4>Ingredients of concern</h4>`;
+  if(res.matches.length === 0){
+    html += `<div class="ing"><span class="dot" style="background:var(--v-exc)"></span>
+      <div class="body"><b>Nothing flagged</b>
+      <small>None of the ${COSMETIC_RISKS.length} ingredients on the watchlist were found.</small></div></div>`;
+  } else {
+    res.matches.forEach(x => {
+      html += `<div class="ing"><span class="dot" style="background:${riskColor(x.r)}"></span>
+        <div class="body"><b>${esc(x.n)}</b>
+        <small>${esc(x.w)}</small></div></div>`;
+    });
+  }
+  html += `</div>`;
+  html += `<div class="section"><h4>Full ingredient list</h4>
+    <div class="fulling">${esc(res.text)}</div></div>`;
+  return html;
+}
+
+function renderNotFound(code){
+  $("result-body").innerHTML = `<div class="result-card">
+    <h2 style="font-size:1.05rem">Product not found</h2>
+    <div class="section"><div class="missing">Barcode <b>${esc(code)}</b> isn't in
+    Open Food Facts or Open Beauty Facts yet. These databases are built by people
+    like you — add it in 30 seconds at
+    <a href="https://world.openfoodfacts.org" target="_blank" rel="noopener">openfoodfacts.org</a>
+    (food) or
+    <a href="https://world.openbeautyfacts.org" target="_blank" rel="noopener">openbeautyfacts.org</a>
+    (cosmetics), and it will work here right away.</div></div></div>`;
+}
+
+/* ============================== search =============================== */
+async function searchDB(base, q){
+  try{
+    const url = `https://${base}/cgi/search.pl?search_terms=${encodeURIComponent(q)}&search_simple=1&action=process&json=1&page_size=6&fields=code,product_name,brands,image_front_small_url,image_front_url`;
+    const r = await fetch(url);
+    if(!r.ok) return [];
+    const d = await r.json();
+    return d.products || [];
+  }catch(e){ return []; }
+}
+async function doSearch(){
+  const q = $("search-q").value.trim();
+  if(!q) return;
+  $("search-results").innerHTML = "";
+  $("search-loader").classList.add("show");
+  const [food, beauty] = await Promise.all([
+    searchDB("world.openfoodfacts.org", q),
+    searchDB("world.openbeautyfacts.org", q)
+  ]);
+  $("search-loader").classList.remove("show");
+  const rows = [...food.map(x => ({...x, t:"Food"})), ...beauty.map(x => ({...x, t:"Cosmetic"}))]
+    .filter(x => x.code && (x.product_name || x.brands));
+  if(!rows.length){
+    $("search-results").innerHTML = `<div class="empty">No products found for "${esc(q)}".<br>Try the barcode instead — it's more reliable.</div>`;
+    return;
+  }
+  $("search-results").innerHTML = rows.map(x => {
+    const img = x.image_front_small_url || x.image_front_url;
+    return `<div class="prod-row" data-code="${esc(x.code)}">
+      ${img ? `<img src="${esc(img)}" alt="">` : `<div class="noimg">?</div>`}
+      <div class="meta"><b>${esc(x.product_name || "Unnamed")}</b>
+      <span>${esc(x.brands || "")} · ${x.t}</span></div>
+    </div>`;
+  }).join("");
+  document.querySelectorAll(".prod-row").forEach(el =>
+    el.addEventListener("click", () => lookup(el.dataset.code)));
+}
+$("btn-search").addEventListener("click", doSearch);
+$("search-q").addEventListener("keydown", e => { if(e.key === "Enter") doSearch(); });
+
+/* ============================== history ============================== */
+let history = [];
+try{ history = JSON.parse(localStorage.getItem("clearlabel_history") || "[]"); }catch(e){}
+
+function saveHistory(p, code, type, res){
+  const entry = {
+    code, type,
+    name: p.product_name || "Unnamed product",
+    brand: p.brands || "",
+    img: p.image_front_small_url || p.image_front_url || p.image_url || "",
+    score: res.score,
+    ts: Date.now()
+  };
+  history = [entry, ...history.filter(h => h.code !== code)].slice(0, 50);
+  try{ localStorage.setItem("clearlabel_history", JSON.stringify(history)); }catch(e){}
+}
+
+function renderHistory(){
+  const el = $("history-list");
+  if(!history.length){
+    el.innerHTML = `<div class="empty">Nothing scanned yet.<br>Your last 50 products will appear here.</div>`;
+    return;
+  }
+  el.innerHTML = history.map(h => {
+    const v = verdictOf(h.score);
+    return `<div class="prod-row" data-code="${esc(h.code)}">
+      ${h.img ? `<img src="${esc(h.img)}" alt="">` : `<div class="noimg">?</div>`}
+      <div class="meta"><b>${esc(h.name)}</b>
+      <span>${esc(h.brand)}${h.brand ? " · " : ""}${h.type === "cosmetic" ? "Cosmetic" : "Food"}</span></div>
+      <span class="pill" style="background:${v.color}">${h.score === null ? "–" : h.score}</span>
+    </div>`;
+  }).join("") +
+  `<button class="btn secondary clear-hist" id="btn-clear-hist">Clear history</button>`;
+  document.querySelectorAll("#history-list .prod-row").forEach(r =>
+    r.addEventListener("click", () => lookup(r.dataset.code)));
+  $("btn-clear-hist").addEventListener("click", () => {
+    history = [];
+    try{ localStorage.removeItem("clearlabel_history"); }catch(e){}
+    renderHistory();
+  });
+}
+</script>
+</body>
+</html>
