@@ -13,6 +13,16 @@ free forever under the ODbL licence.
 ## Features
 
 - **Barcode scanning** with your iPhone camera (EAN-8/13, UPC-A/E, Code 128/39)
+- **Works for products that aren't in any database** — if a barcode isn't found,
+  point the camera at the ingredients list printed on the pack: ClearLabel reads it
+  with on-device OCR (Tesseract.js), understands **E-numbers, INS numbers (Indian
+  labels), class notation like "Preservative (211)", and full ingredient names**,
+  scores it, and saves it to *your products* on your phone — so that barcode works
+  instantly (and offline) from then on
+- **4 open databases checked in parallel** — Open Food Facts, Open Beauty Facts,
+  Open Products Facts and Open Pet Food Facts — plus automatic barcode-variant
+  retries (a 12-digit UPC is also tried in its 13-digit zero-padded EAN form and
+  vice versa), which fixes many false "not found" results
 - **Manual barcode entry** and **search by product name** as backups
 - **Food scoring** — Yuka-style: 60% nutrition (Nutri-Score), 30% additives, 10% organic,
   with a built-in risk table of 60+ E-number additives (EFSA / IARC / EU assessments)
@@ -21,6 +31,8 @@ free forever under the ODbL licence.
   a plain-English explanation of the concern
 - **Allergen display, NOVA ultra-processing group, nutrition facts**
 - **History** of your last 50 scans, stored only on your device
+- **Your products** — everything you add via label scanning is stored only in your
+  browser (editable and removable from the result screen)
 - Add to Home Screen → works like a native app
 
 ## Put it on your iPhone (2 minutes, free)
@@ -62,9 +74,11 @@ Everything lives in one file. Open `index.html` and edit:
 - Scoring weights in `scoreFood()` / `scoreCosmetic()`
 - Colors and fonts in the `:root` CSS variables
 
-If a product isn't found, it isn't in the open databases yet — add it at
-openfoodfacts.org or openbeautyfacts.org (photo + barcode, 30 seconds) and your
-app picks it up immediately. That's the open-data deal: everyone's scans get better.
+If a product isn't found in any database, the app no longer dead-ends: it offers
+to **scan the ingredients label** with your camera (or lets you type it), scores it
+on the spot, and remembers it on your device. You can also add the product at
+openfoodfacts.org or openbeautyfacts.org (photo + barcode, 30 seconds) so it works
+for everyone — that's the open-data deal: everyone's scans get better.
 
 ## Disclaimer
 
