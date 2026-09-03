@@ -95,6 +95,28 @@
     border-radius:12px;padding:12px 14px;font-size:.85rem;display:none;
   }
 
+  /* ---------- Label analyzer (OCR / manual ingredients) ---------- */
+  .an-input{
+    width:100%;font:inherit;font-size:1rem;
+    border:1.5px solid var(--line);border-radius:14px;
+    padding:13px 14px;background:var(--card);color:var(--ink);margin-bottom:10px;
+  }
+  .an-input:focus{outline:2px solid var(--ink);outline-offset:1px;border-color:var(--ink)}
+  textarea.an-input{min-height:150px;font-size:.95rem;resize:vertical;line-height:1.5}
+  .seg{
+    display:flex;border:1.5px solid var(--ink);border-radius:14px;
+    overflow:hidden;margin-bottom:10px;
+  }
+  .seg button{
+    flex:1;background:transparent;border:0;font:inherit;font-weight:600;
+    padding:11px;cursor:pointer;color:var(--ink);
+  }
+  .seg button.on{background:var(--ink);color:#fff}
+  .localnote{
+    background:#EAF4EC;border:1px solid #CBE3D2;border-radius:12px;
+    padding:14px;font-size:.85rem;line-height:1.5;
+  }
+
   /* ---------- Search screen ---------- */
   .search-results{margin-top:16px}
   .prod-row{
@@ -250,7 +272,9 @@
       <input id="manual-code" type="text" inputmode="numeric" placeholder="e.g. 3017620422003" aria-label="Barcode number">
       <button id="btn-manual">Check</button>
     </div>
-    <p class="hint">The number printed under the barcode — usually 8 or 13 digits. Works for food and cosmetics worldwide.</p>
+    <p class="hint">The number printed under the barcode — usually 8 or 13 digits. And if a product
+    isn't in any database yet, ClearLabel will offer to read the ingredients label straight off the
+    pack with your camera — so it works for any product, anywhere.</p>
   </div>
 
   <!-- Search -->
@@ -494,6 +518,13 @@ $("manual-code").addEventListener("keydown", e => {
 });
 
 /* ============================== lookup =============================== */
+const DATABASES = [
+  {base:"world.openfoodfacts.org",     type:"food"},
+  {base:"world.openbeautyfacts.org",   type:"cosmetic"},
+  {base:"world.openproductsfacts.org", type:"other"},
+  {base:"world.openpetfoodfacts.org",  type:"food"}
+];
+
 async function fetchProduct(base, code){
   try{
     const r = await fetch(`https://${base}/api/v0/product/${code}.json`);
@@ -503,34 +534,134 @@ async function fetchProduct(base, code){
   }catch(e){ return null; }
 }
 
+/* The same product is often stored under a different form of its barcode:
+   a 12-digit UPC-A may be filed under its 13-digit zero-padded EAN form,
+   and codes with leading zeros are sometimes stored stripped. Trying the
+   variants fixes a lot of false "not found" results. */
+function codeVariants(code){
+  const v = new Set([code]);
+  const stripped = code.replace(/^0+/, "");
+  if(stripped.length >= 6) v.add(stripped);
+  if(code.length >= 6 && code.length < 13) v.add(code.padStart(13, "0"));
+  return [...v];
+}
+
+const isRich = p => !!(p.ingredients_text || p.nutriscore_grade || p.nutrition_grades);
+
 async function lookup(code){
   showScreen("result");
   $("result-body").innerHTML = "";
+  $("result-loader").innerHTML = `<div class="spin"></div>Checking your products + ${DATABASES.length} open databases…`;
   $("result-loader").classList.add("show");
 
-  let type = "food";
-  let p = productCache["off:"+code] || await fetchProduct("world.openfoodfacts.org", code);
-  if(p && !(p.ingredients_text || p.nutriscore_grade || p.nutrition_grades)){
-    // Shell entry in OFF — check if the beauty database knows it better
-    const alt = await fetchProduct("world.openbeautyfacts.org", code);
-    if(alt && alt.ingredients_text){ p = alt; type = "cosmetic"; }
+  const variants = codeVariants(code);
+
+  // 1) Your own on-device database wins — instant, offline, always accurate.
+  for(const vcode of variants){
+    if(myProducts[vcode]){
+      $("result-loader").classList.remove("show");
+      renderLocalProduct(myProducts[vcode]);
+      return;
+    }
   }
-  if(!p){
-    p = await fetchProduct("world.openbeautyfacts.org", code);
-    if(p) type = "cosmetic";
+
+  // 2) Session cache.
+  if(productCache[code]){
+    $("result-loader").classList.remove("show");
+    const c = productCache[code];
+    const result = (c.type === "cosmetic") ? scoreCosmetic(c.p) : scoreFood(c.p);
+    renderResult(c.p, code, c.type, result);
+    return;
   }
-  if(!p){
-    p = await fetchProduct("world.openproductsfacts.org", code);
-    if(p) type = "other";
+
+  // 3) Query all open databases in parallel, for each barcode variant.
+  let best = null, bestType = "food";
+  for(const vcode of variants){
+    const hits = (await Promise.all(
+      DATABASES.map(db => fetchProduct(db.base, vcode).then(p => p ? {p, type:db.type} : null))
+    )).filter(Boolean);
+    if(!hits.length) continue;
+    // Prefer the entry that actually has ingredients or a Nutri-Score —
+    // e.g. a shell entry in the food DB loses to a full one in the beauty DB.
+    const pick = hits.find(h => isRich(h.p)) || hits[0];
+    best = pick.p; bestType = pick.type;
+    break;
   }
 
   $("result-loader").classList.remove("show");
-  if(!p){ renderNotFound(code); return; }
-  productCache[(type==="cosmetic"?"obf:":"off:")+code] = p;
+  if(!best){ renderNotFound(code); return; }
+  productCache[code] = {p: best, type: bestType};
 
-  const result = (type === "cosmetic") ? scoreCosmetic(p) : scoreFood(p);
-  renderResult(p, code, type, result);
-  saveHistory(p, code, type, result);
+  const result = (bestType === "cosmetic") ? scoreCosmetic(best) : scoreFood(best);
+  renderResult(best, code, bestType, result);
+  saveHistory(best, code, bestType, result);
+}
+
+/* ================== your on-device product database ================== */
+/* Products you add yourself — read straight off the label — live only in
+   this browser's storage. They are checked before any online database. */
+let myProducts = {};
+try{ myProducts = JSON.parse(localStorage.getItem("clearlabel_myproducts") || "{}"); }catch(e){}
+
+function saveMyProduct(entry){
+  myProducts[entry.code] = entry;
+  try{ localStorage.setItem("clearlabel_myproducts", JSON.stringify(myProducts)); }catch(e){}
+}
+function deleteMyProduct(code){
+  delete myProducts[code];
+  try{ localStorage.setItem("clearlabel_myproducts", JSON.stringify(myProducts)); }catch(e){}
+}
+
+function pseudoProduct(entry){
+  const low = (entry.ingredients || "").toLowerCase();
+  return {
+    product_name: entry.name || "Product " + entry.code,
+    brands: entry.brand || "",
+    ingredients_text: entry.ingredients,
+    additives_tags: parseAdditiveCodes(low).map(c => "en:" + c),
+    allergens_tags: detectAllergens(low).map(a => "en:" + a),
+    labels_tags: /\borganic\b/.test(low) ? ["en:organic"] : [],
+    nutriments: {}
+  };
+}
+
+function renderLocalProduct(entry){
+  const p = pseudoProduct(entry);
+  const res = entry.type === "cosmetic" ? scoreCosmetic(p) : scoreFood(p);
+  renderResult(p, entry.code, entry.type, res, {local:true, entry});
+  saveHistory(p, entry.code, entry.type, res);
+}
+
+/* ============ reading additives straight from a label ================ */
+/* Understands "E211", "E-211", "INS 211" (used on Indian and many Asian
+   labels), "Preservative (211)" class notation, and full additive names
+   like "sodium benzoate" or "monosodium glutamate". */
+function parseAdditiveCodes(text){
+  const found = new Set();
+  const keep = c => { const n = parseInt(c, 10); if(n >= 100 && n < 1600) found.add("e" + c.toLowerCase()); };
+  let m;
+  const reCode = /\b(?:e|ins)[\s.\-]?(\d{3,4}[a-z]?)\b/g;
+  while((m = reCode.exec(text))) keep(m[1]);
+  const classes = "preservative|acidity regulator|emulsifier|stabili[sz]er|stabili[sz]ing agent|thickener|thickening agent|antioxidant|anti-?caking agent|colou?r|raising agent|leavening agent|humectant|sweetener|flavou?r enhancer|gelling agent|glazing agent|sequestrant|firming agent|bulking agent";
+  const reClass = new RegExp("(?:" + classes + ")s?[^()]{0,12}\\(([^)]{1,80})\\)", "g");
+  while((m = reClass.exec(text))){
+    (m[1].match(/\b\d{3,4}[a-z]?\b/g) || []).forEach(keep);
+  }
+  Object.entries(ADDITIVES).forEach(([code, info]) => {
+    const primary = info.n.split("(")[0].split("/")[0].trim().toLowerCase();
+    const hit = primary.length >= 6
+      ? text.includes(primary)
+      : new RegExp("\\b" + primary + "\\b").test(text);
+    if(hit) found.add(code);
+  });
+  return [...found];
+}
+
+const ALLERGEN_WORDS = ["milk","peanut","soy","soya","wheat","gluten","egg","fish","prawn",
+  "shrimp","crab","almond","cashew","walnut","hazelnut","pistachio","sesame","mustard",
+  "celery","sulphite","sulfite","lupin","mollusc","barley","oats","rye"];
+function detectAllergens(text){
+  return ALLERGEN_WORDS.filter(w => new RegExp("\\b" + w + "s?\\b").test(text));
 }
 
 /* ============================ food scoring =========================== */
@@ -624,12 +755,13 @@ function dialSVG(score, color){
   </div>`;
 }
 
-function renderResult(p, code, type, res){
+function renderResult(p, code, type, res, opts = {}){
   const v = verdictOf(res.score);
   const name = p.product_name || p.product_name_en || "Unnamed product";
   const brand = p.brands || "";
   const img = p.image_front_url || p.image_url || "";
-  const typeLabel = type === "cosmetic" ? "Cosmetic" : type === "other" ? "Product" : "Food";
+  const typeLabel = (type === "cosmetic" ? "Cosmetic" : type === "other" ? "Product" : "Food")
+    + (opts.local ? " · yours" : "");
 
   let html = `<div class="result-card">
     <div class="result-head">
@@ -648,10 +780,22 @@ function renderResult(p, code, type, res){
       </div>
     </div>`;
 
+  if(opts.local){
+    html += `<div class="section"><div class="localnote">Scored from the label you scanned
+      and saved to <b>your products</b> on this device — this barcode now works instantly,
+      even offline. The open databases don't have it yet; adding it at openfoodfacts.org
+      or openbeautyfacts.org makes it work for everyone.</div></div>`;
+  }
+
   if(type !== "cosmetic"){
     html += foodSections(res, p);
   } else {
     html += cosmeticSections(res, p, code);
+  }
+
+  if(opts.local){
+    html += `<button class="btn secondary" id="btn-local-edit" style="margin-top:18px">Edit this entry</button>
+      <button class="btn secondary" id="btn-local-del" style="margin-top:10px;color:var(--v-bad);border-color:var(--v-bad)">Remove from my products</button>`;
   }
 
   html += `<p class="disclaimer">Scores are computed on your device from open data
@@ -661,6 +805,25 @@ function renderResult(p, code, type, res){
     for allergies.</p></div>`;
 
   $("result-body").innerHTML = html;
+
+  if(opts.local){
+    $("btn-local-edit").addEventListener("click", () => renderNotFound(code, {
+      name: opts.entry.name, brand: opts.entry.brand,
+      type: opts.entry.type, ingredients: opts.entry.ingredients, openForm: true
+    }));
+    $("btn-local-del").addEventListener("click", () => {
+      if(confirm("Remove this product from your on-device list?")){
+        deleteMyProduct(code);
+        showScreen(lastTab);
+      }
+    });
+  }
+  const scanBtn = document.getElementById("btn-scan-label");
+  if(scanBtn) scanBtn.addEventListener("click", () => renderNotFound(code, {
+    name: p.product_name || "", brand: p.brands || "",
+    type: type === "cosmetic" ? "cosmetic" : "food",
+    headline: "Scan the label yourself"
+  }));
 }
 
 function foodSections(res, p){
@@ -700,7 +863,9 @@ function foodSections(res, p){
     html += `<div class="section"><div class="missing">No nutrition data yet for this
       product, so the score uses a neutral baseline. You can add the label photo on
       <a href="https://world.openfoodfacts.org" target="_blank" rel="noopener">Open Food Facts</a>
-      to improve it for everyone.</div></div>`;
+      to improve it for everyone.</div>
+      ${p.ingredients_text ? "" : `<button class="btn secondary" id="btn-scan-label" style="margin-top:12px">📷 Scan the ingredients label instead</button>`}
+      </div>`;
   }
 
   // Allergens
@@ -725,7 +890,9 @@ function cosmeticSections(res, p, code){
       database but its ingredient list hasn't been added yet, so it can't be scored.
       Snap a photo of the ingredients on
       <a href="https://world.openbeautyfacts.org" target="_blank" rel="noopener">Open Beauty Facts</a>
-      and it will work for everyone.</div></div>`;
+      and it will work for everyone — or read it right now with your camera:</div>
+      <button class="btn secondary" id="btn-scan-label" style="margin-top:12px">📷 Scan the ingredients label</button>
+      </div>`;
     return html;
   }
   html += `<div class="section"><h4>Ingredients of concern</h4>`;
@@ -746,16 +913,114 @@ function cosmeticSections(res, p, code){
   return html;
 }
 
-function renderNotFound(code){
+/* ================= not found → read the label instead ================ */
+function renderNotFound(code, fields = {}){
+  const headline = fields.headline || (fields.openForm ? "Edit your entry" : "Not in the databases — no problem");
   $("result-body").innerHTML = `<div class="result-card">
-    <h2 style="font-size:1.05rem">Product not found</h2>
-    <div class="section"><div class="missing">Barcode <b>${esc(code)}</b> isn't in
-    Open Food Facts or Open Beauty Facts yet. These databases are built by people
-    like you — add it in 30 seconds at
-    <a href="https://world.openfoodfacts.org" target="_blank" rel="noopener">openfoodfacts.org</a>
-    (food) or
-    <a href="https://world.openbeautyfacts.org" target="_blank" rel="noopener">openbeautyfacts.org</a>
-    (cosmetics), and it will work here right away.</div></div></div>`;
+    <h2 style="font-size:1.05rem">${esc(headline)}</h2>
+    ${fields.openForm ? "" : `<div class="section"><div class="missing">Barcode <b>${esc(code)}</b>
+    isn't in any of the ${DATABASES.length} open product databases yet — coverage is still thin
+    outside Europe. <b>You don't need it to be.</b> Point your camera at the ingredients list
+    printed on the pack and ClearLabel will read it and score it, right here on your phone.</div></div>`}
+    <div class="section" id="analyze-actions">
+      <button class="btn" id="btn-label-photo">📷 Scan the ingredients label</button>
+      <button class="btn secondary" id="btn-label-type">Type the ingredients instead</button>
+      <input type="file" id="label-file" accept="image/*" style="display:none">
+    </div>
+    <div id="analyze-panel"></div>
+    <p class="disclaimer">Want it fixed for everyone? Add the product (photo + barcode, ~30
+    seconds) at <a href="https://world.openfoodfacts.org" target="_blank" rel="noopener">openfoodfacts.org</a>
+    (food) or <a href="https://world.openbeautyfacts.org" target="_blank" rel="noopener">openbeautyfacts.org</a>
+    (cosmetics) — this app picks it up immediately.</p>
+  </div>`;
+
+  const panel = $("analyze-panel");
+
+  function showForm(f){
+    panel.innerHTML = `
+      ${f.note ? `<div class="missing" style="margin-top:14px">${esc(f.note)}</div>` : ""}
+      <div class="section">
+        <input id="an-name" class="an-input" type="text" placeholder="Product name (optional)" value="${esc(f.name || "")}">
+        <input id="an-brand" class="an-input" type="text" placeholder="Brand (optional)" value="${esc(f.brand || "")}">
+        <div class="seg" role="radiogroup" aria-label="Product type">
+          <button type="button" data-t="food" ${f.type !== "cosmetic" ? 'class="on"' : ""}>Food</button>
+          <button type="button" data-t="cosmetic" ${f.type === "cosmetic" ? 'class="on"' : ""}>Cosmetic</button>
+        </div>
+        <textarea id="an-ing" class="an-input" placeholder="Ingredients exactly as printed on the pack…">${esc(f.ingredients || "")}</textarea>
+        <p class="hint">Check the text against the pack and fix any reading mistakes.
+        E-numbers, INS numbers (Indian labels) and full ingredient names are all understood.</p>
+        <button class="btn" id="an-go">Analyse &amp; save</button>
+      </div>`;
+    let type = f.type === "cosmetic" ? "cosmetic" : "food";
+    panel.querySelectorAll(".seg button").forEach(b => b.addEventListener("click", () => {
+      panel.querySelectorAll(".seg button").forEach(x => x.classList.remove("on"));
+      b.classList.add("on"); type = b.dataset.t;
+    }));
+    $("an-go").addEventListener("click", () => {
+      const ingredients = $("an-ing").value.trim();
+      if(!ingredients){ $("an-ing").focus(); return; }
+      const entry = {
+        code, type,
+        name: $("an-name").value.trim(),
+        brand: $("an-brand").value.trim(),
+        ingredients, ts: Date.now()
+      };
+      saveMyProduct(entry);
+      renderLocalProduct(entry);
+    });
+    $("an-ing").scrollIntoView({behavior:"smooth", block:"center"});
+  }
+
+  $("btn-label-type").addEventListener("click", () => showForm(fields));
+  $("btn-label-photo").addEventListener("click", () => $("label-file").click());
+  $("label-file").addEventListener("change", async e => {
+    const file = e.target.files && e.target.files[0];
+    if(!file) return;
+    panel.innerHTML = `<div class="loader show" id="ocr-status"><div class="spin"></div>Preparing…</div>`;
+    const status = msg => { const s = $("ocr-status"); if(s) s.innerHTML = `<div class="spin"></div>${msg}`; };
+    try{
+      const text = await ocrImage(file, status);
+      showForm({...fields, ingredients: cleanOcr(text) || fields.ingredients,
+        note: text.trim() ? "Here's what the camera read — please correct any mistakes before analysing."
+                          : "Couldn't read any text from that photo. Try a closer, sharper shot in good light, or type the ingredients below."});
+    }catch(err){
+      console.error(err);
+      showForm({...fields, note: "The label reader couldn't load (it needs internet the first time). You can still type the ingredients below."});
+    }
+    e.target.value = "";
+  });
+
+  if(fields.openForm) showForm(fields);
+}
+
+/* ------------------ in-browser OCR (Tesseract.js) -------------------- */
+function loadScript(src){
+  return new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = src; s.onload = resolve;
+    s.onerror = () => reject(new Error("Failed to load " + src));
+    document.head.appendChild(s);
+  });
+}
+async function ocrImage(file, onStatus){
+  if(!window.Tesseract){
+    onStatus("Loading the label reader (first time only)…");
+    await loadScript("https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js");
+  }
+  onStatus("Reading the label…");
+  const {data} = await Tesseract.recognize(file, "eng", {
+    logger: m => {
+      if(m.status === "recognizing text") onStatus(`Reading the label… ${Math.round(m.progress * 100)}%`);
+    }
+  });
+  return data.text || "";
+}
+function cleanOcr(t){
+  return t
+    .replace(/-\n(?=[a-z])/g, "")   // join hy-phenated line breaks
+    .replace(/\n+/g, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
 }
 
 /* ============================== search =============================== */
